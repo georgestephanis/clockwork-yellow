@@ -37,6 +37,8 @@ This codebase was built from scratch in under 30 minutes, progressing through a 
    - Modularized the monolithic `main.cpp` into three decoupled functional components: `network_time` (WiFi & NTP), `map_projection` (calibrations and trig tables), and `display_ui` (TFT setups and layout drawing).
    - Designed and implemented a robust, fully asynchronous `NetState` state machine that handles WiFi connections, NTP polling, backoffs, and retries non-blockingly, completely eliminating boot and runtime freezes.
    - Simplified `main.cpp` into a clean, readable orchestrator (shrinking it from 655 lines to a concise 223 lines).
+   - Integrated a safe boot shadow suppression: the day/night terminator is not rendered at all until a valid NTP time sync is confirmed, drawing the map at full brightness initially to prevent displaying incorrect shadows.
+   - Added a transition trigger in the main loop that detects the moment `isTimeSynced()` goes high, immediately drawing the correct solar shadow and refreshing the status icons without delay.
 8. **Phase 8: Configurable Screen & Touch Rotation:**
    - Designed and implemented a compile-time screen rotation configuration (`DISPLAY_ROTATION`) in `config.h`.
    - Rotated display and touchscreen orientation by 180 degrees (switching from landscape orientation 3 to landscape orientation 1) to support custom 3D-printed mounts.

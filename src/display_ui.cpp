@@ -63,17 +63,26 @@ void drawMap(bool bannerVisible, int mapMode, int twilightMode, bool gridEnabled
     time_t now_utc;
     time(&now_utc);
     
-    // Calculate current position of the Sun
-    SolarPosition sun = calculateSolarPosition(now_utc);
+    // Check if time is synced; if not, we do not apply the day/night shadow (terminator)
+    bool applyShadow = isTimeSynced();
     
-    double phi_s = degToRad(sun.declination);
-    double lambda_s = degToRad(sun.subsolarLon);
+    double phi_s = 0.0;
+    double lambda_s = 0.0;
+    double sin_phi_s = 0.0, cos_phi_s = 0.0, sin_lambda_s = 0.0, cos_lambda_s = 0.0;
+    
+    if (applyShadow) {
+        // Calculate current position of the Sun
+        SolarPosition sun = calculateSolarPosition(now_utc);
+        
+        phi_s = degToRad(sun.declination);
+        lambda_s = degToRad(sun.subsolarLon);
 
-    // Precalculate subsolar terms
-    double sin_phi_s = std::sin(phi_s);
-    double cos_phi_s = std::cos(phi_s);
-    double sin_lambda_s = std::sin(lambda_s);
-    double cos_lambda_s = std::cos(lambda_s);
+        // Precalculate subsolar terms
+        sin_phi_s = std::sin(phi_s);
+        cos_phi_s = std::cos(phi_s);
+        sin_lambda_s = std::sin(lambda_s);
+        cos_lambda_s = std::cos(lambda_s);
+    }
 
     // Grid lines spacing (every 30 degrees)
     // Longitude indices to draw lines at
@@ -105,10 +114,13 @@ void drawMap(bool bannerVisible, int mapMode, int twilightMode, bool gridEnabled
         }
 
         // Row-specific solar terms to avoid redundant calculations in the inner loop
-        double A = sin_phi[y] * sin_phi_s;
-        double B = cos_phi[y] * cos_phi_s;
-        double C = B * cos_lambda_s;
-        double D = B * sin_lambda_s;
+        double A = 0.0, B = 0.0, C = 0.0, D = 0.0;
+        if (applyShadow) {
+            A = sin_phi[y] * sin_phi_s;
+            B = cos_phi[y] * cos_phi_s;
+            C = B * cos_lambda_s;
+            D = B * sin_lambda_s;
+        }
 
         // Loop through each pixel in the row
         for (int x = 0; x < 320; x++) {
@@ -125,23 +137,23 @@ void drawMap(bool bannerVisible, int mapMode, int twilightMode, bool gridEnabled
                 }
             }
 
-            // 1. Calculate Solar Elevation Angle (sin_a)
-            double sin_a = A + C * cos_lambda[x] + D * sin_lambda[x];
-
-            // 2. Determine Day/Night/Twilight Dimming Factor
+            // 1. Calculate Solar Elevation Angle (sin_a) and apply Day/Night Dimming
             double factor = 1.0;
-            if (sin_a < 0.0) {
-                if (twilightMode == 0) {
-                    // Sharp terminator: immediate jump to night dimming
-                    factor = 0.25;
-                } else {
-                    // Blended twilight: smooth transition down to -12 degrees (nautical twilight)
-                    const double sin_limit = -0.20791;
-                    if (sin_a <= sin_limit) {
-                        factor = 0.25; // Full night dimming
+            if (applyShadow) {
+                double sin_a = A + C * cos_lambda[x] + D * sin_lambda[x];
+                if (sin_a < 0.0) {
+                    if (twilightMode == 0) {
+                        // Sharp terminator: immediate jump to night dimming
+                        factor = 0.25;
                     } else {
-                        // Linear interpolation between 1.0 (day) and 0.25 (night)
-                        factor = 0.25 + 0.75 * (sin_a - sin_limit) / (-sin_limit);
+                        // Blended twilight: smooth transition down to -12 degrees (nautical twilight)
+                        const double sin_limit = -0.20791;
+                        if (sin_a <= sin_limit) {
+                            factor = 0.25; // Full night dimming
+                        } else {
+                            // Linear interpolation between 1.0 (day) and 0.25 (night)
+                            factor = 0.25 + 0.75 * (sin_a - sin_limit) / (-sin_limit);
+                        }
                     }
                 }
             }

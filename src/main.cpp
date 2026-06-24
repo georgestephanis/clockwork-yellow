@@ -195,6 +195,18 @@ void loop() {
     // Update non-blocking network state machine (WiFi and NTP)
     updateNetworkState();
 
+    // Trigger immediate map and banner refresh as soon as time sync completes for the first time
+    static bool last_known_sync = false;
+    bool current_sync = isTimeSynced();
+    if (current_sync && !last_known_sync) {
+        last_known_sync = true;
+        Serial.println("Time synced via NTP. Redrawing map with correct solar terminator.");
+        drawMap();
+        drawBanner(true); // Force redraw to update NTP status indicator immediately
+    } else if (!current_sync && last_known_sync) {
+        last_known_sync = false; // Reset if sync is lost
+    }
+
     // Poll touch input every 80ms to reduce SPI bus traffic and eliminate electrical screen flicker
     static uint32_t last_touch_poll = 0;
     uint32_t now = millis();
