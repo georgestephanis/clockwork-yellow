@@ -9,6 +9,7 @@
 #include "solar.h"
 #include "world_map.h"
 #include "map_projection.h"
+#include "network_time.h"
 
 // Hardware instances
 TFT_eSPI tft = TFT_eSPI();
@@ -24,8 +25,6 @@ int twilight_mode = DEFAULT_TWILIGHT_MODE;     // 0 = Sharp, 1 = Blended
 int map_mode = 0;                              // 0 = Full Color, 1 = Flat, 2 = Outline
 
 // Network & Time state
-bool wifi_connected = false;
-bool time_synced = false;
 uint32_t last_map_update = 0;
 uint32_t last_touch_time = 0;
 int last_rendered_minute = -1;
@@ -49,63 +48,7 @@ void setBacklight(int level) {
     ledcWrite(0, 255); // Always fully ON (255 is active-high maximum brightness)
 }
 
-// Connect to WiFi network
-void connectWiFi() {
-    tft.fillRect(0, 200, 320, 40, TFT_BLACK);
-    tft.setTextColor(TFT_WHITE, TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString("Connecting to WiFi...", 160, 220, 2);
-
-    Serial.print("Connecting to WiFi: ");
-    Serial.println(WIFI_SSID);
-
-    WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-    
-    uint32_t start_time = millis();
-    while (WiFi.status() != WL_CONNECTED && millis() - start_time < WIFI_TIMEOUT_MS) {
-        delay(500);
-        Serial.print(".");
-    }
-
-    if (WiFi.status() == WL_CONNECTED) {
-        wifi_connected = true;
-        Serial.println("\nWiFi Connected!");
-        Serial.print("IP Address: ");
-        Serial.println(WiFi.localIP());
-    } else {
-        wifi_connected = false;
-        Serial.println("\nWiFi Connection Failed (Timeout).");
-    }
-}
-
-// Sync time with NTP server
-void syncNTP() {
-    if (!wifi_connected) return;
-
-    tft.fillRect(0, 200, 320, 40, TFT_BLACK);
-    tft.setTextColor(TFT_GOLD, TFT_BLACK);
-    tft.setTextDatum(MC_DATUM);
-    tft.drawString("Syncing Time via NTP...", 160, 220, 2);
-
-    Serial.println("Syncing time via NTP...");
-    configTime(0, 0, NTP_SERVER);
-
-    // Wait for time to sync (up to 10 seconds)
-    struct tm timeinfo;
-    int retry = 0;
-    while (!getLocalTime(&timeinfo) && retry < 20) {
-        delay(500);
-        retry++;
-    }
-
-    if (retry < 20) {
-        time_synced = true;
-        Serial.println("Time synchronized successfully!");
-    } else {
-        time_synced = false;
-        Serial.println("Time synchronization failed.");
-    }
-}
+// WiFi and NTP functions are now implemented in network_time.cpp
 
 // Helper to classify a map pixel as water based on its red channel
 inline bool isWaterPixel(uint16_t pix) {
@@ -400,10 +343,10 @@ void drawBanner(bool forceRedraw) {
     tft.drawLine(203, 227, 208, 225, map_btn_color);
 
     // 4. Render small WiFi & Sync status icons below the buttons
-    uint16_t wifi_color = wifi_connected ? TFT_GREEN : TFT_RED;
+    uint16_t wifi_color = isWiFiConnected() ? TFT_GREEN : TFT_RED;
     tft.fillCircle(150, 235, 2, wifi_color);
     
-    uint16_t ntp_color = time_synced ? TFT_GREEN : TFT_RED;
+    uint16_t ntp_color = isTimeSynced() ? TFT_GREEN : TFT_RED;
     tft.fillCircle(175, 235, 2, ntp_color);
 }
 
@@ -505,13 +448,7 @@ void handleTouch() {
         
         // 5. Manual NTP Sync (Right side of banner, UTC area)
         else if (touch_x >= 215) {
-            Serial.println("Manual sync triggered via touch.");
-            if (WiFi.status() != WL_CONNECTED) {
-                connectWiFi();
-            }
-            if (wifi_connected) {
-                syncNTP();
-            }
+            triggerManualSync();
             drawMap();
             drawBanner(true);
         }
@@ -558,11 +495,8 @@ void setup() {
     // 4. Precalculate Trigonometric Tables
     initTrigTables();
 
-    // 5. Connect to WiFi & Sync Time
-    connectWiFi();
-    if (wifi_connected) {
-        syncNTP();
-    }
+    // 5. Connect to WiFi asynchronously (non-blocking)
+    initNetwork();
 
     // 6. Perform initial drawing
     banner_visible = true;
@@ -573,6 +507,9 @@ void setup() {
 }
 
 void loop() {
+    // Update non-blocking network state machine (WiFi and NTP)
+    updateNetworkState();
+
     // Poll touch input every 80ms to reduce SPI bus traffic and eliminate electrical screen flicker
     static uint32_t last_touch_poll = 0;
     uint32_t now = millis();
@@ -594,14 +531,10 @@ void loop() {
         
         // Refresh the map overlay
         drawMap();
-        
-        // Trigger NTP sync periodically (every hour)
-        static uint32_t last_ntp_sync = 0;
-        if (wifi_connected && (now - last_ntp_sync >= NTP_SYNC_INTERVAL_SEC * 1000 || last_ntp_sync == 0)) {
-            last_ntp_sync = now;
-            syncNTP();
-        }
     }
+
+    // Periodic background NTP sync (every hour, non-blocking)
+    checkNtpPeriodic(NTP_SYNC_INTERVAL_SEC);
 
     // Update the clocks in the bottom banner (handles its own min-change filter)
     drawBanner(false);
