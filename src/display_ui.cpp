@@ -28,12 +28,21 @@ void setBacklight(int level) {
 }
 
 void initDisplay() {
-    // 1. Initialize Screen Backlight (using ESP32 PWM on channel 0)
+    // 1. Initialize and turn off the RGB LED on the back of the device
+    // (Common anode RGB LED is active-low: writing HIGH turns it OFF)
+    pinMode(CYD_RGB_RED, OUTPUT);
+    pinMode(CYD_RGB_GREEN, OUTPUT);
+    pinMode(CYD_RGB_BLUE, OUTPUT);
+    digitalWrite(CYD_RGB_RED, HIGH);
+    digitalWrite(CYD_RGB_GREEN, HIGH);
+    digitalWrite(CYD_RGB_BLUE, HIGH);
+
+    // 2. Initialize Screen Backlight (using ESP32 PWM on channel 0)
     ledcSetup(0, 5000, 8);
     ledcAttachPin(TFT_BL, 0);
     setBacklight(2); // Keep backlight fully ON
 
-    // 2. Initialize TFT Display
+    // 3. Initialize TFT Display
     tft.init();
     tft.setRotation(3); // Landscape: USB port on the right side
     tft.setSwapBytes(true); // Swap bytes for correct RGB565 color mapping
