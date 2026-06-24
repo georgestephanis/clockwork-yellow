@@ -22,6 +22,16 @@ This codebase was built from scratch in under 30 minutes, progressing through a 
    - Expanded the world map rendering to the full 320x240 screen, extending the trigonometric coordinate precalculations to cover the entire southern hemisphere down to the South Pole (-90 degrees latitude).
    - Integrated a safe "wake-up" touch intercept that restores the banner and squeezes the map back to 200 rows without triggering any unintended dashboard button actions.
    - Added an immediate manual toggle: tapping the map area ($y < 200$) while the control panel is visible instantly enters full-screen mode, where the clock banner remains hidden until the user taps the display again.
+5. **Phase 5: Home Location Calibration & Snappy Touch Responsiveness:**
+   - Resolved touchscreen unresponsiveness by moving the SPI `ts.getPoint()` register-clearing read to the very beginning of the touch interrupt poll (before the software debounce check), keeping the XPT2046 controller's hardware registers clean.
+   - Reduced the touch debounce window from 350ms to a snappy 200ms to increase interface snappiness and eliminate lag.
+   - Discovered and mathematically analyzed severe non-linear vertical warping in the AI-generated world map image (such as a vertically stretched northern hemisphere and an extremely squashed southern hemisphere).
+   - Designed and implemented a **piecewise linear latitude calibration function `latToY()`** using ten observed landmark coordinates along column 92 (Baffin Island, Hudson Bay, Great Lakes, US coast, Florida, Cuba, Colombia, Cape Horn, and Antarctica) to map coordinates onto the warped map with an **RMS error of only 1.11 pixels**, correcting the Marietta, PA home dot placement.
+6. **Phase 6: Permanent Backlight & Dynamic 2-Mode Map Toggle:**
+   - Resolved hardware-specific backlight transistor limits on newer CYD revisions (where the backlight is hardwired to VCC or lacks PWM dimming) by setting the PWM duty cycle to a permanent active-high maximum (`255`), keeping the backlight fully ON and eliminating blank boot screens.
+   - Replaced the backlight sleep/dimming button with a Map Mode [M] button represented by a custom folded vector map icon that dynamically shifts colors based on the active mode (Orange for Color, Sage Green for Flat).
+   - Implemented a dynamic binary map toggle cycling between the original full-color physical map and a basic flat dual-color map (deep navy blue oceans `0x0911` and sage green continents `0x5CE9`).
+   - Processed the flat map dynamically at runtime in the row-by-row rendering pipeline, achieving **zero additional flash memory overhead** and keeping the binary well within the 1.25 MB partition limit.
 
 ---
 

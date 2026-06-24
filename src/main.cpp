@@ -578,7 +578,7 @@ void setup() {
     grid_enabled = prefs.getBool("grid", DEFAULT_GRID_ENABLED);
     home_enabled = prefs.getBool("home", true);
     twilight_mode = prefs.getInt("twilight", DEFAULT_TWILIGHT_MODE);
-    map_mode = prefs.getInt("map_mode", 0);
+    map_mode = prefs.getInt("map_mode", DEFAULT_MAP_MODE);
     prefs.end();
 
     // 1. Initialize Screen Backlight (using ESP32 PWM on channel 0)

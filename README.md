@@ -22,8 +22,9 @@ The firmware compiles a high-contrast physical world map directly into the ESP32
   * **UTC Clock:** Standard in GeoChrons, in signature Clockwork Gold color.
   * **[G] Grid Button:** Toggles a 30-degree coordinate grid overlay.
   * **[T] Twilight Button:** Toggles between a sharp day/night line and a soft blended twilight zone.
-  * **[B] Brightness Button:** Cycles display backlight through High, Medium, Low, and Sleep (Off).
-  * **Sleep/Wake Touch:** When screen is asleep (Off), any tap anywhere on the screen wakes it up and restores the previous brightness without triggering other actions.
+  * **[M] Map Mode Button:** Represented by a custom folded vector map icon, this button toggles between the original full-color physical map and a clean, basic flat dual-color map (deep navy blue oceans and sage green continents) dynamically at runtime (zero flash overhead).
+  * **Auto-Hiding Dashboard & Full-Screen Expansion:** Auto-hides the control banner after 10 seconds of touch inactivity to expand the map to the full 320x240 screen, showing the southern hemisphere down to the South Pole. Tapping the screen safely wakes the banner back up without triggering accidental button presses.
+  * **Piecewise Latitude Calibration:** Features a mathematically calibrated latitude mapping function `latToY()` (RMS error = 1.11 pixels) to perfectly plot customized home location reference dots (like Marietta, PA) onto the AI-generated map's warped geography.
   * **Manual Sync:** Tapping the UTC clock area forces an immediate WiFi reconnection and NTP sync.
 * **Network & Sync Indicators:** Two green status dots monitor WiFi connection and NTP time sync states.
 * **SPI Bus Separation:** Runs the touchscreen on a dedicated hardware SPI bus (`VSPI`), eliminating bus conflicts and preventing electrical screen flickering.
@@ -42,7 +43,7 @@ The CYD board is hardwired as follows (automatically configured in `platformio.i
 * **CS:** GPIO 15
 * **DC:** GPIO 2
 * **RST:** GPIO -1 (uses ESP32 reset)
-* **Backlight (BL):** GPIO 21 (backlight dimming via hardware PWM channel 0)
+* **Backlight (BL):** GPIO 21 (kept permanently ON at 100% active-high duty cycle to support all CYD board revisions)
 
 ### Touchscreen (SPI VSPI Bus)
 * **CS:** GPIO 33

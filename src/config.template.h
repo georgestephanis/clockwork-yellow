@@ -24,7 +24,7 @@
 // Default User Preferences
 #define DEFAULT_GRID_ENABLED false // Show latitude/longitude grid by default
 #define DEFAULT_TWILIGHT_MODE 1    // 0 = Sharp (no twilight), 1 = Blended (nautical twilight)
-#define DEFAULT_BACKLIGHT_LEVEL 2  // 0 = Off, 1 = Low, 2 = Bright
+#define DEFAULT_MAP_MODE 0  // 0 = Full Color, 1 = Flat Basic
 
 // Pin definition for the touchscreen CS (shared SPI bus with TFT)
 #define TOUCH_CS 33
