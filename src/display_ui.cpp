@@ -18,9 +18,18 @@ static inline double degToRad(double deg) {
     return deg * M_PI / 180.0;
 }
 
-// Helper to classify a map pixel as water based on its red channel
+// Helper to classify a map pixel as water using a balanced color channel heuristic.
+// - Water is highly blue compared to red (b > r + 3), which correctly identifies
+//   deep oceans, coastal boundaries, and inland lakes, while filtering out neutral
+//   land, deserts, and ice.
+// - To prevent dark green vegetation (like the Amazon rainforest) from being
+//   misclassified as water, we also verify that the Blue channel is not heavily
+//   dominated by the Green channel (b >= g - 12).
 static inline bool isWaterPixel(uint16_t pix) {
-    return ((pix >> 11) & 0x1F) < 6;
+    uint16_t r = (pix >> 11) & 0x1F;
+    uint16_t g = (pix >> 5) & 0x3F;
+    uint16_t b = pix & 0x1F;
+    return (b > r + 3) && (b >= g - 12);
 }
 
 void setBacklight(int level) {
