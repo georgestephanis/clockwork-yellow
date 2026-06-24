@@ -1,1 +1,21 @@
-/.pio
+# Clockwork Yellow Git Ignore
+
+# Private/Local configuration containing credentials
+src/config.h
+
+# PlatformIO local build artifacts and libraries
+.pio/
+.pioenvs/
+.piolibdeps/
+
+# Local IDE/VS Code configurations
+.vscode/
+.clang_complete
+.gcc-flags.json
+.tags
+
+# Temporary files
+*~
+*.swp
+*.tmp
+.DS_Store

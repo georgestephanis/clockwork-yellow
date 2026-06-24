@@ -58,10 +58,14 @@ The CYD board is hardwired as follows (automatically configured in `platformio.i
 This project is structured for **PlatformIO**. To compile and flash:
 
 1. **Install PlatformIO Core:** Ensure you have PlatformIO installed (via VS Code or CLI).
-2. **Configure WiFi Credentials:** Open [src/config.h](src/config.h) and enter your network details:
+2. **Configure WiFi Credentials:** Copy the template configuration file `src/config.template.h` to `src/config.h` (which is automatically gitignored to protect your private credentials):
+   ```bash
+   cp src/config.template.h src/config.h
+   ```
+   Open `src/config.h` and enter your network details:
    ```cpp
-   #define WIFI_SSID "Your_WiFi_SSID"
-   #define WIFI_PASSWORD "Your_WiFi_Password"
+   #define WIFI_SSID "Your_Actual_SSID"
+   #define WIFI_PASSWORD "Your_Actual_Password"
    ```
 3. **Compile the Firmware:**
    ```bash
