@@ -77,6 +77,7 @@ This project is structured for **PlatformIO**. To compile and flash:
    ```bash
    pio run --target upload
    ```
+   *Note: If the upload utility fails to connect and displays `Connecting...`, hold down the physical **BOOT** button on the back of the Cheap Yellow Display board to force it into bootloader mode.*
 5. **Open Serial Monitor:**
    ```bash
    pio device monitor
