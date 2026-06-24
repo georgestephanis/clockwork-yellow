@@ -18,9 +18,9 @@ Preferences prefs;
 // Global state variables (restored from flash)
 int timezone_offset = DEFAULT_TIMEZONE_OFFSET; // Local timezone offset in hours
 bool grid_enabled = DEFAULT_GRID_ENABLED;      // Draw lat/lon grid
+bool home_enabled = true;                      // Draw home location reference dots
 int twilight_mode = DEFAULT_TWILIGHT_MODE;     // 0 = Sharp, 1 = Blended
-int backlight_level = DEFAULT_BACKLIGHT_LEVEL; // 0 = Sleep, 1 = Low, 2 = Med, 3 = High
-int prev_backlight_level = 3;                  // Restore level when waking up
+int backlight_level = DEFAULT_BACKLIGHT_LEVEL; // 0 = Sleep, 1 = Low, 2 = Bright
 
 // Network & Time state
 bool wifi_connected = false;
@@ -62,14 +62,15 @@ void initTrigTables() {
 }
 
 // Configure screen backlight level using ESP32 PWM
+// (Inverted for active-low backlight transistor on standard CYD hardware)
 void setBacklight(int level) {
-    int duty = 0;
+    int duty = 255; // Default to fully OFF for active-low
     switch (level) {
-        case 0: duty = 0; break;     // Screen Off
-        case 1: duty = 30; break;    // Low brightness
-        case 2: duty = 110; break;   // Medium brightness
-        case 3: duty = 255; break;   // High brightness
-        default: duty = 255;
+        case 0: duty = 255; break;   // Screen Off (255 is fully off, 0% ON)
+        case 1: duty = 248; break;   // Low brightness (248 is very dim bedside glow, ~2.7% ON)
+        case 2: duty = 200; break;   // Medium brightness (200 is comfortable indoor light, ~21.5% ON)
+        case 3: duty = 0; break;     // High brightness (0 is fully on, 100% ON)
+        default: duty = 0;
     }
     ledcWrite(0, duty);
 }
@@ -256,6 +257,31 @@ void drawMap() {
         // Push the fully compiled, blended row directly to the TFT display
         tft.pushImage(0, y, 320, 1, row_buffer);
     }
+
+    // Draw defined home locations as high-contrast reference dots on the map if enabled
+    if (home_enabled) {
+        for (int i = 0; i < HOME_LOCATIONS_COUNT; i++) {
+            float lat = HOME_LOCATIONS[i].latitude;
+            float lon = HOME_LOCATIONS[i].longitude;
+            
+            // Map longitude (-180 to 180) to screen x (0 to 319)
+            int x = (int)((lon + 180.0) * (320.0 / 360.0) + 0.5);
+            // Map latitude (90 to -90) to screen y (0 to 239)
+            int y = (int)((90.0 - lat) * (240.0 / 180.0) + 0.5);
+            
+            // Constrain to screen boundaries
+            x = constrain(x, 0, 319);
+            y = constrain(y, 0, 239);
+            
+            // Only draw if the pixel is in the currently visible map region
+            if (!banner_visible || y < 200) {
+                // Draw a black 1-pixel outer border for contrast on any background color
+                tft.drawCircle(x, y, 3, TFT_BLACK);
+                // Draw the solid colored center dot
+                tft.fillCircle(x, y, 2, HOME_LOCATIONS[i].color);
+            }
+        }
+    }
 }
 
 // Draw the interactive bottom dashboard banner containing clocks and settings
@@ -264,13 +290,13 @@ void drawBanner(bool forceRedraw) {
 
     time_t now_utc;
     time(&now_utc);
-    struct tm *tm_utc = gmtime(&now_utc);
+    struct tm tm_utc = *gmtime(&now_utc); // Copy struct to local variable to avoid static buffer overwrite
 
     // Only redraw the banner when minutes change, or if explicitly forced
-    if (!forceRedraw && tm_utc->tm_min == last_rendered_minute) {
+    if (!forceRedraw && tm_utc.tm_min == last_rendered_minute) {
         return;
     }
-    last_rendered_minute = tm_utc->tm_min;
+    last_rendered_minute = tm_utc.tm_min;
 
     // Draw solid black background for the banner area (y: 200-239)
     if (forceRedraw) {
@@ -281,15 +307,15 @@ void drawBanner(bool forceRedraw) {
 
     // 1. Calculate Local Time
     time_t now_local = now_utc + (timezone_offset * 3600);
-    struct tm *tm_local = gmtime(&now_local);
+    struct tm tm_local = *gmtime(&now_local); // Copy struct to local variable to avoid static buffer overwrite
 
     char time_str[16];
     char date_str[16];
-    sprintf(time_str, "%02d:%02d", tm_local->tm_hour, tm_local->tm_min);
+    sprintf(time_str, "%02d:%02d", tm_local.tm_hour, tm_local.tm_min);
     
     // Format Month Day
     const char *months[] = {"Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"};
-    sprintf(date_str, "%s %02d", months[tm_local->tm_mon], tm_local->tm_mday);
+    sprintf(date_str, "%s %02d", months[tm_local.tm_mon], tm_local.tm_mday);
 
     // Render Local Clock (Left side, white)
     tft.fillRect(5, 204, 110, 32, TFT_BLACK); // Clear local time bounding box
@@ -310,7 +336,7 @@ void drawBanner(bool forceRedraw) {
 
     // 2. Render UTC Clock (Right side, Gold)
     char utc_time_str[16];
-    sprintf(utc_time_str, "%02d:%02d", tm_utc->tm_hour, tm_utc->tm_min);
+    sprintf(utc_time_str, "%02d:%02d", tm_utc.tm_hour, tm_utc.tm_min);
     
     tft.fillRect(215, 204, 100, 32, TFT_BLACK); // Clear UTC time bounding box
     tft.setTextColor(0xFDA0, TFT_BLACK); // Clockwork Gold color
@@ -319,55 +345,80 @@ void drawBanner(bool forceRedraw) {
     
     tft.setTextColor(TFT_GOLD, TFT_BLACK);
     tft.setTextDatum(BR_DATUM);
-    tft.drawString("UTC TIME", 315, 238, 1);
+    char utc_date_lbl[16];
+    sprintf(utc_date_lbl, "UTC  %s %02d", months[tm_utc.tm_mon], tm_utc.tm_mday);
+    tft.drawString(utc_date_lbl, 315, 238, 1);
 
     // 3. Render Dashboard Indicators & Buttons (Center area: x 115-210)
     tft.fillRect(115, 204, 95, 32, TFT_BLACK); // Clear middle area
 
-    // --- BUTTON 1: Grid Status Button ---
+    // --- BUTTON 1: Grid Status Button (x: 116-138) ---
     uint16_t grid_color = grid_enabled ? TFT_GREEN : TFT_WHITE;
-    tft.drawRoundRect(118, 210, 24, 20, 4, grid_color);
-    // Draw internal grid lines (dimmed to dark grey when disabled for visual depth)
+    tft.drawRoundRect(116, 210, 22, 20, 4, grid_color);
     uint16_t grid_line_color = grid_enabled ? TFT_GREEN : 0x528A;
-    tft.drawFastVLine(126, 212, 16, grid_line_color);
-    tft.drawFastVLine(134, 212, 16, grid_line_color);
-    tft.drawFastHLine(120, 216, 20, grid_line_color);
-    tft.drawFastHLine(120, 224, 20, grid_line_color);
+    tft.drawFastVLine(123, 212, 16, grid_line_color);
+    tft.drawFastVLine(130, 212, 16, grid_line_color);
+    tft.drawFastHLine(118, 216, 18, grid_line_color);
+    tft.drawFastHLine(118, 224, 18, grid_line_color);
 
-    // --- BUTTON 2: Twilight Style Button ---
+    // --- BUTTON 2: Home Location Toggle (x: 140-162) ---
+    uint16_t home_btn_color = home_enabled ? 0xFDA0 : TFT_WHITE; // Gold vs White
+    tft.drawRoundRect(140, 210, 22, 20, 4, home_btn_color);
+    // Draw house roof
+    tft.drawLine(145, 219, 151, 213, home_btn_color);
+    tft.drawLine(151, 213, 157, 219, home_btn_color);
+    tft.drawFastHLine(146, 219, 11, home_btn_color);
+    // Draw house body
+    tft.drawRect(147, 219, 9, 8, home_btn_color);
+    // Draw door
+    tft.fillRect(150, 223, 3, 4, home_btn_color);
+
+    // --- BUTTON 3: Twilight Style Button (x: 164-186) ---
     uint16_t twi_color = twilight_mode == 1 ? 0x5DFF : TFT_WHITE; // Sky Blue vs White
-    tft.drawRoundRect(148, 210, 24, 20, 4, twi_color);
-    // Draw a sun/moon terminator circle in the center (160, 220) with radius 5
-    tft.drawCircle(160, 220, 5, twi_color);
+    tft.drawRoundRect(164, 210, 22, 20, 4, twi_color);
+    tft.drawCircle(175, 220, 5, twi_color);
     if (twilight_mode == 1) {
-        // Blended mode: Fill the left half of the circle to represent a soft terminator
         for (int dx = -4; dx <= 0; dx++) {
             int h = (int)sqrt(25 - dx * dx);
-            tft.drawFastVLine(160 + dx, 220 - h, 2 * h + 1, 0x5DFF);
+            tft.drawFastVLine(175 + dx, 220 - h, 2 * h + 1, 0x5DFF);
         }
     } else {
-        // Sharp mode: Draw a vertical dividing line through the center of the circle
-        tft.drawFastVLine(160, 215, 11, TFT_WHITE);
+        tft.drawFastVLine(175, 215, 11, TFT_WHITE);
     }
 
-    // --- BUTTON 3: Brightness Level Button ---
-    uint16_t brt_colors[] = {TFT_DARKGREY, TFT_ORANGE, TFT_YELLOW, TFT_WHITE};
+    // --- BUTTON 4: Brightness Level Button (x: 188-210) ---
+    uint16_t brt_colors[] = {TFT_DARKGREY, TFT_ORANGE, TFT_YELLOW};
     uint16_t brt_box_color = brt_colors[backlight_level];
-    tft.drawRoundRect(178, 210, 24, 20, 4, brt_box_color);
-    // Draw 3 ascending signal-style brightness bars
-    uint16_t bar1_color = (backlight_level >= 1) ? TFT_ORANGE : TFT_DARKGREY;
-    uint16_t bar2_color = (backlight_level >= 2) ? TFT_YELLOW : TFT_DARKGREY;
-    uint16_t bar3_color = (backlight_level >= 3) ? TFT_WHITE : TFT_DARKGREY;
-    tft.fillRect(184, 222, 3, 4, bar1_color);
-    tft.fillRect(189, 218, 3, 8, bar2_color);
-    tft.fillRect(194, 214, 3, 12, bar3_color);
+    tft.drawRoundRect(188, 210, 22, 20, 4, brt_box_color);
+    
+    // Draw lightbulb icon (x center: 199, y center: 217)
+    uint16_t bulb_color = (backlight_level == 2) ? TFT_YELLOW : ((backlight_level == 1) ? TFT_ORANGE : TFT_DARKGREY);
+    if (backlight_level == 2) {
+        tft.fillCircle(199, 217, 4, bulb_color); // Solid circle for glowing bulb
+    } else {
+        tft.drawCircle(199, 217, 4, bulb_color); // Outline circle
+        if (backlight_level == 1) {
+            tft.drawPixel(199, 217, bulb_color); // Small filament dot inside for Low
+        }
+    }
+    tft.fillRect(197, 221, 5, 2, bulb_color); // Bulb neck
+    tft.drawFastHLine(197, 223, 5, bulb_color); // Metal base thread 1
+    tft.drawFastHLine(198, 224, 3, bulb_color); // Metal base thread 2
+
+    // Draw glow rays around the top of the bulb (only for Level 2: Bright)
+    if (backlight_level == 2) {
+        uint16_t glow_color = TFT_WHITE; // Bright white glow
+        tft.drawFastVLine(199, 210, 2, glow_color); // Top ray
+        tft.drawPixel(194, 213, glow_color);        // Top-left ray
+        tft.drawPixel(204, 213, glow_color);        // Top-right ray
+        tft.drawFastHLine(192, 217, 2, glow_color); // Left ray
+        tft.drawFastHLine(204, 217, 2, glow_color); // Right ray
+    }
 
     // 4. Render small WiFi & Sync status icons below the buttons
-    // Draw Wifi dot
     uint16_t wifi_color = wifi_connected ? TFT_GREEN : TFT_RED;
-    tft.fillCircle(145, 235, 2, wifi_color);
+    tft.fillCircle(150, 235, 2, wifi_color);
     
-    // Draw NTP dot
     uint16_t ntp_color = time_synced ? TFT_GREEN : TFT_RED;
     tft.fillCircle(175, 235, 2, ntp_color);
 }
@@ -376,17 +427,20 @@ void drawBanner(bool forceRedraw) {
 void handleTouch() {
     if (!ts.touched()) return;
 
-    // Debounce touch inputs (minimum 350ms between registered touches)
+    // Read the touch point immediately to clear the hardware controller's registers/buffer
+    TS_Point p = ts.getPoint();
+
+    // Debounce touch inputs (minimum 200ms between registered touches)
     uint32_t now = millis();
-    if (now - last_touch_time < 350) {
+    if (now - last_touch_time < 200) {
         return;
     }
     last_touch_time = now;
 
     // WAKE UP behavior: If screen was sleeping (backlight_level == 0),
-    // any touch will wake up the screen and restore the previous brightness level!
+    // any touch will wake up the screen and set it to High brightness!
     if (backlight_level == 0) {
-        backlight_level = prev_backlight_level > 0 ? prev_backlight_level : 3;
+        backlight_level = 2; // Always wake up to Bright brightness to ensure visibility and break the loop
         setBacklight(backlight_level);
         prefs.putInt("backlight", backlight_level);
         banner_visible = true;
@@ -409,8 +463,6 @@ void handleTouch() {
 
     // Reset inactivity timer since there was activity while the banner was visible
     last_activity_time = now;
-
-    TS_Point p = ts.getPoint();
 
     // Map raw touch coordinate values to 320x240 screen coordinates
     int touch_x = map(p.x, TOUCH_MIN_X, TOUCH_MAX_X, 0, 320); // Normal mapping for landscape orientation 3
@@ -441,8 +493,8 @@ void handleTouch() {
             drawBanner(true); // Force redraw banner to update clock instantly
         }
         
-        // 2. Grid Toggle [G] (x: 115 - 145)
-        else if (touch_x >= 115 && touch_x < 145) {
+        // 2. Grid Toggle [G] (x: 115 - 138)
+        else if (touch_x >= 115 && touch_x < 138) {
             grid_enabled = !grid_enabled;
             prefs.putBool("grid", grid_enabled);
             Serial.printf("Grid toggled: %s\n", grid_enabled ? "ON" : "OFF");
@@ -450,8 +502,17 @@ void handleTouch() {
             drawBanner(true);
         }
         
-        // 3. Twilight Mode Toggle [T] (x: 145 - 175)
-        else if (touch_x >= 145 && touch_x < 175) {
+        // 3. Home Location Toggle [H] (x: 138 - 162)
+        else if (touch_x >= 138 && touch_x < 162) {
+            home_enabled = !home_enabled;
+            prefs.putBool("home", home_enabled);
+            Serial.printf("Home markers toggled: %s\n", home_enabled ? "ON" : "OFF");
+            drawMap(); // Redraw map to apply/remove home dots
+            drawBanner(true);
+        }
+        
+        // 4. Twilight Mode Toggle [T] (x: 162 - 186)
+        else if (touch_x >= 162 && touch_x < 186) {
             twilight_mode = twilight_mode == 1 ? 0 : 1;
             prefs.putInt("twilight", twilight_mode);
             Serial.printf("Twilight mode toggled to: %s\n", twilight_mode == 1 ? "Blended" : "Sharp");
@@ -459,10 +520,9 @@ void handleTouch() {
             drawBanner(true);
         }
         
-        // 4. Backlight Control [B] (x: 175 - 210)
-        else if (touch_x >= 175 && touch_x < 210) {
-            prev_backlight_level = backlight_level;
-            backlight_level = (backlight_level + 1) % 4; // Cycles 0, 1, 2, 3
+        // 5. Backlight Control [B] (x: 186 - 210)
+        else if (touch_x >= 186 && touch_x < 210) {
+            backlight_level = (backlight_level == 0) ? 2 : backlight_level - 1; // Cycle: Bright (2) -> Low (1) -> Off (0)
             setBacklight(backlight_level);
             prefs.putInt("backlight", backlight_level);
             Serial.printf("Backlight level set to: %d\n", backlight_level);
@@ -503,6 +563,7 @@ void setup() {
     prefs.begin("clockwork", false);
     timezone_offset = prefs.getInt("timezone", DEFAULT_TIMEZONE_OFFSET);
     grid_enabled = prefs.getBool("grid", DEFAULT_GRID_ENABLED);
+    home_enabled = prefs.getBool("home", true);
     twilight_mode = prefs.getInt("twilight", DEFAULT_TWILIGHT_MODE);
     backlight_level = prefs.getInt("backlight", DEFAULT_BACKLIGHT_LEVEL);
     prefs.end();

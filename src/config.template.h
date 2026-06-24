@@ -1,6 +1,8 @@
 #ifndef CONFIG_TEMPLATE_H
 #define CONFIG_TEMPLATE_H
 
+#include <stdint.h>
+
 // WiFi Configuration - Replace these with your actual network credentials!
 #define WIFI_SSID "WIFISSID"
 #define WIFI_PASSWORD "PASSWORD"
@@ -22,7 +24,7 @@
 // Default User Preferences
 #define DEFAULT_GRID_ENABLED false // Show latitude/longitude grid by default
 #define DEFAULT_TWILIGHT_MODE 1    // 0 = Sharp (no twilight), 1 = Blended (nautical twilight)
-#define DEFAULT_BACKLIGHT_LEVEL 3  // 0 = Off, 1 = Low, 2 = Medium, 3 = High
+#define DEFAULT_BACKLIGHT_LEVEL 2  // 0 = Off, 1 = Low, 2 = Bright
 
 // Pin definition for the touchscreen CS (shared SPI bus with TFT)
 #define TOUCH_CS 33
@@ -38,5 +40,22 @@
 #define CYD_RGB_RED 4    // RGB LED Red channel
 #define CYD_RGB_GREEN 16 // RGB LED Green channel
 #define CYD_RGB_BLUE 17  // RGB LED Blue channel
+
+// OpenHamClock Backend (OHB) Configuration
+// Points to the public community backend server by default. Can be customized if self-hosting.
+#define HAMCLOCK_BACKEND_URL "http://ohb.hamclock.app"
+
+// Home Location Reference Dots
+struct HomeLocation {
+    float latitude;   // -90.0 to +90.0 (Southern hemisphere is negative)
+    float longitude;  // -180.0 to +180.0 (Western hemisphere is negative)
+    const char* name; // Label for reference
+    uint16_t color;   // RGB565 color for the dot center
+};
+
+#define HOME_LOCATIONS_COUNT 1
+const HomeLocation HOME_LOCATIONS[HOME_LOCATIONS_COUNT] = {
+    {42.3601, -71.0589, "Boston", 0xFDA0} // Boston in Clockwork Gold (High contrast on any background)
+};
 
 #endif // CONFIG_TEMPLATE_H
