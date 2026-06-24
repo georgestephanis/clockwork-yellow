@@ -29,10 +29,13 @@ uint32_t last_map_update = 0;
 uint32_t last_touch_time = 0;
 int last_rendered_minute = -1;
 
-// Trigonometric precalculations for the 320x200 map rendering area
-// (Excludes the bottom 40-pixel banner to save memory and CPU cycles)
-double sin_phi[200];
-double cos_phi[200];
+// Banner visibility & auto-hide timing
+bool banner_visible = true;
+uint32_t last_activity_time = 0;
+
+// Trigonometric precalculations for the 320x240 map rendering area
+double sin_phi[240];
+double cos_phi[240];
 double sin_lambda[320];
 double cos_lambda[320];
 
@@ -43,11 +46,8 @@ static inline double degToRad(double deg) {
 
 // Initialize the trigonometric tables to avoid slow trig calculations in the inner loops
 void initTrigTables() {
-    // Map latitude: y from 0 to 199 corresponds to +90 degrees (top) to -60 degrees (bottom)
-    // Note: The world map is 320x240, representing +90 to -90 degrees.
-    // The top 200 pixels represent +90 to -60 degrees.
-    // The bottom 40 pixels (Antarctica, -60 to -90 degrees) are covered by the clock banner.
-    for (int y = 0; y < 200; y++) {
+    // Map latitude: y from 0 to 239 corresponds to +90 degrees (top) to -90 degrees (bottom)
+    for (int y = 0; y < 240; y++) {
         double lat_deg = 90.0 - y * (180.0 / 240.0);
         sin_phi[y] = sin(degToRad(lat_deg));
         cos_phi[y] = cos(degToRad(lat_deg));
@@ -155,14 +155,15 @@ void drawMap() {
     const int lon_lines_count = 11;
     
     // Latitude indices to draw lines at
-    const int lat_lines[] = {40, 80, 120, 160};
-    const int lat_lines_count = 4;
+    const int lat_lines[] = {40, 80, 120, 160, 200};
+    const int lat_lines_count = 5;
 
     // Direct buffer for writing a line of 320 pixels to the display via SPI
     uint16_t row_buffer[320];
 
-    // Loop through each row in the map area (y from 0 to 199)
-    for (int y = 0; y < 200; y++) {
+    // Loop through each row in the map area (y from 0 to 199 or 239)
+    int num_rows = banner_visible ? 200 : 240;
+    for (int y = 0; y < num_rows; y++) {
         // Read raw physical map row from Flash memory into RAM buffer
         memcpy_P(row_buffer, &world_map[y * 320], 320 * sizeof(uint16_t));
 
@@ -259,6 +260,8 @@ void drawMap() {
 
 // Draw the interactive bottom dashboard banner containing clocks and settings
 void drawBanner(bool forceRedraw) {
+    if (!banner_visible) return;
+
     time_t now_utc;
     time(&now_utc);
     struct tm *tm_utc = gmtime(&now_utc);
@@ -380,8 +383,35 @@ void handleTouch() {
     }
     last_touch_time = now;
 
+    // WAKE UP behavior: If screen was sleeping (backlight_level == 0),
+    // any touch will wake up the screen and restore the previous brightness level!
+    if (backlight_level == 0) {
+        backlight_level = prev_backlight_level > 0 ? prev_backlight_level : 3;
+        setBacklight(backlight_level);
+        prefs.putInt("backlight", backlight_level);
+        banner_visible = true;
+        last_activity_time = now;
+        drawMap();        // Redraw map (200 rows)
+        drawBanner(true); // Redraw buttons
+        Serial.println("Screen woke up from sleep!");
+        return;
+    }
+
+    // WAKE UP banner behavior: If the banner was hidden, this touch brings it back
+    if (!banner_visible) {
+        banner_visible = true;
+        last_activity_time = now;
+        drawMap();        // Redraw map (200 rows)
+        drawBanner(true); // Redraw buttons
+        Serial.println("Banner woke up from touch!");
+        return;
+    }
+
+    // Reset inactivity timer since there was activity while the banner was visible
+    last_activity_time = now;
+
     TS_Point p = ts.getPoint();
-    
+
     // Map raw touch coordinate values to 320x240 screen coordinates
     int touch_x = map(p.x, TOUCH_MIN_X, TOUCH_MAX_X, 0, 320); // Normal mapping for landscape orientation 3
     int touch_y = map(p.y, TOUCH_MIN_Y, TOUCH_MAX_Y, 0, 240);
@@ -391,17 +421,6 @@ void handleTouch() {
     touch_y = constrain(touch_y, 0, 239);
 
     Serial.printf("Touch registered at: X=%d, Y=%d (Raw X=%d, Y=%d)\n", touch_x, touch_y, p.x, p.y);
-
-    // WAKE UP behavior: If screen was sleeping (backlight_level == 0),
-    // any touch will wake up the screen and restore the previous brightness level!
-    if (backlight_level == 0) {
-        backlight_level = prev_backlight_level > 0 ? prev_backlight_level : 3;
-        setBacklight(backlight_level);
-        prefs.putInt("backlight", backlight_level);
-        drawBanner(true); // Redraw buttons
-        Serial.println("Screen woke up from sleep!");
-        return;
-    }
 
     // Touch event in the interactive banner area (y: 200 - 240)
     if (touch_y >= 200) {
@@ -468,11 +487,11 @@ void handleTouch() {
         }
     }
     
-    // Touch event on the map area (y < 200) - acts as a quick display refresh
+    // Touch event on the map area (y < 200) - immediately toggles into full screen mode
     else {
-        Serial.println("Quick map refresh triggered via screen tap.");
-        drawMap();
-        drawBanner(true);
+        Serial.println("Map tap registered. Toggling into full screen mode.");
+        banner_visible = false;
+        drawMap(); // Redraws all 240 rows, hiding the banner
     }
 }
 
@@ -515,6 +534,8 @@ void setup() {
     }
 
     // 6. Perform initial drawing
+    banner_visible = true;
+    last_activity_time = millis();
     drawMap();
     drawBanner(true);
     last_map_update = millis();
@@ -527,6 +548,13 @@ void loop() {
     if (now - last_touch_poll >= 80) {
         last_touch_poll = now;
         handleTouch();
+    }
+
+    // Check if the banner has timed out due to touch inactivity
+    if (banner_visible && (now - last_activity_time >= BANNER_TIMEOUT_MS)) {
+        banner_visible = false;
+        Serial.println("Banner timed out. Hiding banner and expanding map.");
+        drawMap(); // Redraw map to full 240 rows, overwriting the banner
     }
 
     // Check if it is time to refresh the day/night terminator map

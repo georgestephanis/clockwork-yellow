@@ -17,6 +17,11 @@ This codebase was built from scratch in under 30 minutes, progressing through a 
 3. **Phase 3: Hardware-Level Debugging (Colors & Orientation):**
    - Resolved panel-specific color inversion and byte-order mismatches.
    - Identified and implemented a dedicated secondary SPI bus mapping to resolve touchscreen inactivity and eliminate electrical bus-sharing screen flicker.
+4. **Phase 4: Auto-Hiding Dashboard & Full-Screen Expansion:**
+   - Implemented an inactivity timer to auto-hide the bottom banner after a period of touch inactivity (default: 10 seconds).
+   - Expanded the world map rendering to the full 320x240 screen, extending the trigonometric coordinate precalculations to cover the entire southern hemisphere down to the South Pole (-90 degrees latitude).
+   - Integrated a safe "wake-up" touch intercept that restores the banner and squeezes the map back to 200 rows without triggering any unintended dashboard button actions.
+   - Added an immediate manual toggle: tapping the map area ($y < 200$) while the control panel is visible instantly enters full-screen mode, where the clock banner remains hidden until the user taps the display again.
 
 ---
 
@@ -41,7 +46,7 @@ We can rewrite the equation as:
 $$\sin(a) = \sin(\phi)\sin(\phi_s) + \cos(\phi)\cos(\phi_s)\left[\cos(\lambda)\cos(\lambda_s) + \sin(\lambda)\sin(\lambda_s)\right]$$
 
 Since $\phi$ only depends on the row $y$, and $\lambda$ only depends on the column $x$:
-1. We precalculate $\sin(\phi_y)$ and $\cos(\phi_y)$ for the 200 rows.
+1. We precalculate $\sin(\phi_y)$ and $\cos(\phi_y)$ for the 240 rows.
 2. We precalculate $\sin(\lambda_x)$ and $\cos(\lambda_x)$ for the 320 columns.
 3. For a given frame, we compute the subsolar constants once: $\sin(\phi_s)$, $\cos(\phi_s)$, $\sin(\lambda_s)$, and $\cos(\lambda_s)$.
 4. For each row $y$, we precalculate row-specific factors:
