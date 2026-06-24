@@ -32,6 +32,10 @@ This codebase was built from scratch in under 30 minutes, progressing through a 
    - Replaced the backlight sleep/dimming button with a Map Mode [M] button represented by a custom folded vector map icon that dynamically shifts colors based on the active mode (Orange for Color, Sage Green for Flat).
    - Implemented a dynamic binary map toggle cycling between the original full-color physical map and a basic flat dual-color map (deep navy blue oceans `0x0911` and sage green continents `0x5CE9`).
    - Processed the flat map dynamically at runtime in the row-by-row rendering pipeline, achieving **zero additional flash memory overhead** and keeping the binary well within the 1.25 MB partition limit.
+7. **Phase 7: Architectural Refactoring & Non-Blocking State Machine:**
+   - Modularized the monolithic `main.cpp` into three decoupled functional components: `network_time` (WiFi & NTP), `map_projection` (calibrations and trig tables), and `display_ui` (TFT setups and layout drawing).
+   - Designed and implemented a robust, fully asynchronous `NetState` state machine that handles WiFi connections, NTP polling, backoffs, and retries non-blockingly, completely eliminating boot and runtime freezes.
+   - Simplified `main.cpp` into a clean, readable orchestrator (shrinking it from 655 lines to a concise 223 lines).
 
 ---
 
@@ -95,6 +99,7 @@ This reduction eliminates all transcendental function calls in the inner loop, r
 ## 📊 Compilation & Runtime Metrics
 
 * **Optimization Level:** Release (`-O3` equivalent via PlatformIO release build).
-* **RAM footprint:** 53.6 KB (16.4%). Over 270 KB of heap remains free for WiFi buffers, TCP/IP stack operations, and local variables.
-* **Flash footprint:** 941.9 KB (71.9%). The 150 KB world map physical image is stored entirely in flash memory (`PROGMEM`), leaving plenty of room for firmware expansion.
-* **Loop Efficiency:** The main loop runs at a steady 50Hz (20ms interval) with non-blocking polling, maintaining 100% responsiveness and zero processor thermal throttling.
+* **RAM footprint:** 54.4 KB (16.6%). Over 270 KB of heap remains free for WiFi buffers, TCP/IP stack operations, and local variables.
+* **Flash footprint:** 977.7 KB (74.6%). The 150 KB world map physical image is stored entirely in flash memory (`PROGMEM`), leaving plenty of room for firmware expansion.
+* **Loop Efficiency:** The main loop runs at a steady 50Hz (20ms interval) with non-blocking polling, maintaining 100% responsiveness.
+* **Network Responsiveness:** Non-blocking connection and time sync state machine prevents UI freezes and guarantees zero input latency under any WiFi signal state.
