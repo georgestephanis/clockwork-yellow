@@ -14,6 +14,11 @@
 #define NTP_SERVER "pool.ntp.org"
 #define NTP_SYNC_INTERVAL_SEC 3600 // Sync time every hour
 
+// Display and Touchscreen rotation:
+// 3 = Landscape (USB port on the right side - default)
+// 1 = Landscape (USB port on the left side - rotated 180 degrees)
+#define DISPLAY_ROTATION 3
+
 // Display Refresh Configuration
 #define MAP_UPDATE_INTERVAL_MS 300000 // Update the day/night terminator every 5 minutes (300,000 ms)
 #define BANNER_TIMEOUT_MS 10000       // Auto-hide bottom banner after 10 seconds of inactivity

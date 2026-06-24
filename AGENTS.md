@@ -36,6 +36,10 @@ This codebase was built from scratch in under 30 minutes, progressing through a 
    - Modularized the monolithic `main.cpp` into three decoupled functional components: `network_time` (WiFi & NTP), `map_projection` (calibrations and trig tables), and `display_ui` (TFT setups and layout drawing).
    - Designed and implemented a robust, fully asynchronous `NetState` state machine that handles WiFi connections, NTP polling, backoffs, and retries non-blockingly, completely eliminating boot and runtime freezes.
    - Simplified `main.cpp` into a clean, readable orchestrator (shrinking it from 655 lines to a concise 223 lines).
+8. **Phase 8: Configurable Screen & Touch Rotation:**
+   - Designed and implemented a compile-time screen rotation configuration (`DISPLAY_ROTATION`) in `config.h`.
+   - Rotated display and touchscreen orientation by 180 degrees (switching from landscape orientation 3 to landscape orientation 1) to support custom 3D-printed mounts.
+   - Leveraged the touchscreen library's internal coordinate rotation via `ts.setRotation(DISPLAY_ROTATION)` to automatically align the touch system with the display, keeping the coordinate mapping logic clean, standard, and unified.
 
 ---
 
@@ -93,6 +97,12 @@ This reduction eliminates all transcendental function calls in the inner loop, r
 ### 2. Panel Color & Inversion Correction
 * **Byte-Order Correction:** The ESP32 (little-endian) stores the 16-bit RGB565 map array with the low byte first. However, the ILI9341 display controller expects the high byte first (big-endian). Pushing the raw pixels directly swaps the byte order, scrambling the colors. We resolved this by calling `tft.setSwapBytes(true)` to tell the library to swap bytes automatically during hardware SPI writes.
 * **Hardware Color Inversion:** Many newer CYD revisions use IPS panels where colors are inverted relative to standard TN displays, making white look black and blue look peach. We corrected this by calling `tft.invertDisplay(true)` during display setup.
+
+### 3. 180-Degree Physical Rotation (Landscape Mode 1)
+* **The Problem:** Depending on the physical 3D-printed enclosure or mounting setup, the Cheap Yellow Display may need to be mounted upside down (rotated 180 degrees from its default orientation).
+* **The Solution:** We introduced a configurable `DISPLAY_ROTATION` macro. When set to `1`, it configures both the TFT screen and XPT2046 touchscreen to use landscape mode 1 (opposite of mode 3).
+  - The `XPT2046_Touchscreen` library's `ts.setRotation(DISPLAY_ROTATION)` method automatically handles the 180-degree rotation of coordinates internally (reversing the axes from `4095 - x` in rotation 3 to `x` in rotation 1).
+  - Therefore, we do not need any manual coordinate inversion in our `map()` calls; we can use the standard mapping range (`0` to `320` and `0` to `240`) for both orientations. This avoids a double-inversion bug where manual inversion would cancel out the library's internal rotation, leaving the touch area unrotated.
 
 ---
 

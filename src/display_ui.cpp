@@ -44,7 +44,7 @@ void initDisplay() {
 
     // 3. Initialize TFT Display
     tft.init();
-    tft.setRotation(3); // Landscape: USB port on the right side
+    tft.setRotation(DISPLAY_ROTATION); // Apply configured rotation
     tft.setSwapBytes(true); // Swap bytes for correct RGB565 color mapping
     tft.invertDisplay(true); // Invert colors to correct IPS/panel inversion (white = white, blue = blue)
     tft.fillScreen(TFT_BLACK);

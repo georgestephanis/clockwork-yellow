@@ -74,7 +74,7 @@ void handleTouch() {
     last_activity_time = now;
 
     // Map raw touch coordinate values to 320x240 screen coordinates
-    int touch_x = map(p.x, TOUCH_MIN_X, TOUCH_MAX_X, 0, 320); // Normal mapping for landscape orientation 3
+    int touch_x = map(p.x, TOUCH_MIN_X, TOUCH_MAX_X, 0, 320);
     int touch_y = map(p.y, TOUCH_MIN_Y, TOUCH_MAX_Y, 0, 240);
 
     // Constrain to valid screen coordinates
@@ -175,7 +175,7 @@ void setup() {
     // 2. Initialize Touchscreen on a dedicated SPI bus
     touchscreenSPI.begin(25, 39, 32, 33); // SCLK, MISO, MOSI, CS
     ts.begin(touchscreenSPI);
-    ts.setRotation(3); // Match TFT display rotation
+    ts.setRotation(DISPLAY_ROTATION); // Match TFT display rotation
 
     // 4. Precalculate Trigonometric Tables
     initTrigTables();
