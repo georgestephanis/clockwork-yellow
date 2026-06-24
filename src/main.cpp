@@ -20,7 +20,7 @@ int timezone_offset = DEFAULT_TIMEZONE_OFFSET; // Local timezone offset in hours
 bool grid_enabled = DEFAULT_GRID_ENABLED;      // Draw lat/lon grid
 bool home_enabled = true;                      // Draw home location reference dots
 int twilight_mode = DEFAULT_TWILIGHT_MODE;     // 0 = Sharp, 1 = Blended
-int backlight_level = DEFAULT_BACKLIGHT_LEVEL; // 0 = Sleep, 1 = Low, 2 = Bright
+int map_mode = 0;                              // 0 = Full Color, 1 = Flat, 2 = Outline
 
 // Network & Time state
 bool wifi_connected = false;
@@ -64,15 +64,7 @@ void initTrigTables() {
 // Configure screen backlight level using ESP32 PWM
 // (Inverted for active-low backlight transistor on standard CYD hardware)
 void setBacklight(int level) {
-    int duty = 255; // Default to fully OFF for active-low
-    switch (level) {
-        case 0: duty = 255; break;   // Screen Off (255 is fully off, 0% ON)
-        case 1: duty = 248; break;   // Low brightness (248 is very dim bedside glow, ~2.7% ON)
-        case 2: duty = 200; break;   // Medium brightness (200 is comfortable indoor light, ~21.5% ON)
-        case 3: duty = 0; break;     // High brightness (0 is fully on, 100% ON)
-        default: duty = 0;
-    }
-    ledcWrite(0, duty);
+    ledcWrite(0, 255); // Always fully ON (255 is active-high maximum brightness)
 }
 
 // Connect to WiFi network
@@ -133,6 +125,40 @@ void syncNTP() {
     }
 }
 
+// Helper to classify a map pixel as water based on its red channel
+inline bool isWaterPixel(uint16_t pix) {
+    return ((pix >> 11) & 0x1F) < 6;
+}
+
+// Map latitude to screen y using calibrated piecewise linear interpolation to fit the AI map geography
+int latToY(float lat) {
+    if (lat >= 90.0f) return 0;
+    if (lat <= -90.0f) return 239;
+    
+    if (lat >= 62.0f) {
+        return (int)(0.0f + (90.0f - lat) * (15.0f / 28.0f) + 0.5f);
+    } else if (lat >= 43.5f) {
+        return (int)(15.0f + (62.0f - lat) * ((51.0f - 15.0f) / (62.0f - 43.5f)) + 0.5f);
+    } else if (lat >= 40.0572f) {
+        // Precise Pennsylvania / Marietta transition to sit perfectly south of the Great Lakes
+        return (int)(51.0f + (43.5f - lat) * ((73.0f - 51.0f) / (43.5f - 40.0572f)) + 0.5f);
+    } else if (lat >= 27.5f) {
+        return (int)(73.0f + (40.0572f - lat) * ((75.0f - 73.0f) / (40.0572f - 27.5f)) + 0.5f);
+    } else if (lat >= 20.0f) {
+        return (int)(75.0f + (27.5f - lat) * ((101.0f - 75.0f) / (27.5f - 20.0f)) + 0.5f);
+    } else if (lat >= 0.0f) {
+        return (int)(101.0f + (20.0f - lat) * ((115.0f - 101.0f) / 20.0f) + 0.5f);
+    } else if (lat >= -56.0f) {
+        return (int)(115.0f + (-lat) * ((152.0f - 115.0f) / 56.0f) + 0.5f);
+    } else if (lat >= -70.0f) {
+        return (int)(152.0f + (-56.0f - lat) * ((200.0f - 152.0f) / 14.0f) + 0.5f);
+    } else {
+        return (int)(200.0f + (-70.0f - lat) * ((239.0f - 200.0f) / 20.0f) + 0.5f);
+    }
+}
+
+
+
 // Highly optimized, row-by-row rendering of the day/night terminator map
 void drawMap() {
     time_t now_utc;
@@ -187,7 +213,18 @@ void drawMap() {
 
         // Loop through each pixel in the row
         for (int x = 0; x < 320; x++) {
-            uint16_t pixel = row_buffer[x];
+            uint16_t raw_pixel = row_buffer[x];
+            uint16_t pixel = raw_pixel;
+
+            // Apply dynamic map transformations based on map_mode
+            if (map_mode == 1) {
+                // Mode 1: Basic Flat Map (navy blue oceans, sage green land)
+                if (isWaterPixel(raw_pixel)) {
+                    pixel = 0x0911; // Flat deep navy blue
+                } else {
+                    pixel = 0x5CE9; // Flat sage green
+                }
+            }
 
             // 1. Calculate Solar Elevation Angle (sin_a)
             // sin(a) = sin(phi)*sin(phi_s) + cos(phi)*cos(phi_s)*cos(lambda - lambda_s)
@@ -266,8 +303,8 @@ void drawMap() {
             
             // Map longitude (-180 to 180) to screen x (0 to 319)
             int x = (int)((lon + 180.0) * (320.0 / 360.0) + 0.5);
-            // Map latitude (90 to -90) to screen y (0 to 239)
-            int y = (int)((90.0 - lat) * (240.0 / 180.0) + 0.5);
+            // Map latitude using our calibrated curve to align with the AI-generated map's geography
+            int y = latToY(lat);
             
             // Constrain to screen boundaries
             x = constrain(x, 0, 319);
@@ -386,34 +423,24 @@ void drawBanner(bool forceRedraw) {
         tft.drawFastVLine(175, 215, 11, TFT_WHITE);
     }
 
-    // --- BUTTON 4: Brightness Level Button (x: 188-210) ---
-    uint16_t brt_colors[] = {TFT_DARKGREY, TFT_ORANGE, TFT_YELLOW};
-    uint16_t brt_box_color = brt_colors[backlight_level];
-    tft.drawRoundRect(188, 210, 22, 20, 4, brt_box_color);
+    // --- BUTTON 4: Map Mode Button (x: 188-210) ---
+    uint16_t map_btn_colors[] = {TFT_ORANGE, 0x5CE9}; // Color (Orange), Flat (Sage Green)
+    uint16_t map_btn_color = map_btn_colors[map_mode];
+    tft.drawRoundRect(188, 210, 22, 20, 4, map_btn_color);
     
-    // Draw lightbulb icon (x center: 199, y center: 217)
-    uint16_t bulb_color = (backlight_level == 2) ? TFT_YELLOW : ((backlight_level == 1) ? TFT_ORANGE : TFT_DARKGREY);
-    if (backlight_level == 2) {
-        tft.fillCircle(199, 217, 4, bulb_color); // Solid circle for glowing bulb
-    } else {
-        tft.drawCircle(199, 217, 4, bulb_color); // Outline circle
-        if (backlight_level == 1) {
-            tft.drawPixel(199, 217, bulb_color); // Small filament dot inside for Low
-        }
-    }
-    tft.fillRect(197, 221, 5, 2, bulb_color); // Bulb neck
-    tft.drawFastHLine(197, 223, 5, bulb_color); // Metal base thread 1
-    tft.drawFastHLine(198, 224, 3, bulb_color); // Metal base thread 2
-
-    // Draw glow rays around the top of the bulb (only for Level 2: Bright)
-    if (backlight_level == 2) {
-        uint16_t glow_color = TFT_WHITE; // Bright white glow
-        tft.drawFastVLine(199, 210, 2, glow_color); // Top ray
-        tft.drawPixel(194, 213, glow_color);        // Top-left ray
-        tft.drawPixel(204, 213, glow_color);        // Top-right ray
-        tft.drawFastHLine(192, 217, 2, glow_color); // Left ray
-        tft.drawFastHLine(204, 217, 2, glow_color); // Right ray
-    }
+    // Draw folded map icon inside the box (x: 193 to 208, y: 213 to 227)
+    tft.drawLine(193, 215, 193, 227, map_btn_color);
+    tft.drawLine(198, 213, 198, 225, map_btn_color);
+    tft.drawLine(203, 215, 203, 227, map_btn_color);
+    tft.drawLine(208, 213, 208, 225, map_btn_color);
+    
+    tft.drawLine(193, 215, 198, 213, map_btn_color);
+    tft.drawLine(198, 213, 203, 215, map_btn_color);
+    tft.drawLine(203, 215, 208, 213, map_btn_color);
+    
+    tft.drawLine(193, 227, 198, 225, map_btn_color);
+    tft.drawLine(198, 225, 203, 227, map_btn_color);
+    tft.drawLine(203, 227, 208, 225, map_btn_color);
 
     // 4. Render small WiFi & Sync status icons below the buttons
     uint16_t wifi_color = wifi_connected ? TFT_GREEN : TFT_RED;
@@ -437,19 +464,7 @@ void handleTouch() {
     }
     last_touch_time = now;
 
-    // WAKE UP behavior: If screen was sleeping (backlight_level == 0),
-    // any touch will wake up the screen and set it to High brightness!
-    if (backlight_level == 0) {
-        backlight_level = 2; // Always wake up to Bright brightness to ensure visibility and break the loop
-        setBacklight(backlight_level);
-        prefs.putInt("backlight", backlight_level);
-        banner_visible = true;
-        last_activity_time = now;
-        drawMap();        // Redraw map (200 rows)
-        drawBanner(true); // Redraw buttons
-        Serial.println("Screen woke up from sleep!");
-        return;
-    }
+
 
     // WAKE UP banner behavior: If the banner was hidden, this touch brings it back
     if (!banner_visible) {
@@ -520,17 +535,15 @@ void handleTouch() {
             drawBanner(true);
         }
         
-        // 5. Backlight Control [B] (x: 186 - 210)
+        // 5. Map Mode Control [M] (x: 186 - 210)
         else if (touch_x >= 186 && touch_x < 210) {
-            backlight_level = (backlight_level == 0) ? 2 : backlight_level - 1; // Cycle: Bright (2) -> Low (1) -> Off (0)
-            setBacklight(backlight_level);
-            prefs.putInt("backlight", backlight_level);
-            Serial.printf("Backlight level set to: %d\n", backlight_level);
-            if (backlight_level > 0) {
-                drawBanner(true);
-            } else {
-                Serial.println("Screen entering sleep mode.");
-            }
+            map_mode = (map_mode + 1) % 2; // Cycle: 0 (Color) -> 1 (Flat)
+            prefs.begin("clockwork", false);
+            prefs.putInt("map_mode", map_mode);
+            prefs.end();
+            Serial.printf("Map mode set to: %d\n", map_mode);
+            drawMap();        // Redraw map to apply the new mode
+            drawBanner(true); // Redraw banner to update the button icon
         }
         
         // 5. Manual NTP Sync (Right side of banner, UTC area)
@@ -565,13 +578,13 @@ void setup() {
     grid_enabled = prefs.getBool("grid", DEFAULT_GRID_ENABLED);
     home_enabled = prefs.getBool("home", true);
     twilight_mode = prefs.getInt("twilight", DEFAULT_TWILIGHT_MODE);
-    backlight_level = prefs.getInt("backlight", DEFAULT_BACKLIGHT_LEVEL);
+    map_mode = prefs.getInt("map_mode", 0);
     prefs.end();
 
     // 1. Initialize Screen Backlight (using ESP32 PWM on channel 0)
     ledcSetup(0, 5000, 8);
     ledcAttachPin(TFT_BL, 0);
-    setBacklight(backlight_level);
+    setBacklight(2); // Keep backlight fully ON
 
     // 2. Initialize TFT Display
     tft.init();
